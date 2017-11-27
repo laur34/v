@@ -1,0 +1,53 @@
+## VSEARCH-based pipeline for Illumina paired-end metabarcoding reads
+## 11.2017 LH, VB.
+
+##Get all fastq files into working directory and unzip them (my vsearch (v2.4.3_linux_x86_64, 15.6GB RAM, 8 cores)
+##doesn't work with gzipped files, for some reason).
+
+##Merge paired-end reads:
+#this one is working:
+for i in *_R1_*.fastq; do
+	vsearch2 --fastq_mergepairs ${i} \
+		--reverse ${i/_R1_/_R2_} \
+		--fastqout ${i/R1_*/merged.fq} \
+done
+
+##Relabel the headers:
+for i in $(ls *_merged.fq | cut -f 1-3 -d "_"); do sed -i "s/^@M/@${i}|/" ${i}_merged.fq; done
+
+#Concatenate merged fastq's into one file:
+cat *_merged.fq > allmerged.fq
+
+#remove primers -Note: you have to specify your own primers. These are "MiniLGC" fwd & rev primers for a 313-bp coding region of COI.
+##forward:
+cutadapt -g ^TCATGGWACWGGWTGAACWGTWTAYCCYCC -o trimmed1.fq allmerged.fq
+##reverse:
+cutadapt -a TGRTTYTTTGGTCACCCTGAAGTTTACTCC$ -o trimmed2.fq trimmed1.fq 
+
+##Reverse Complementing: There really should only be a negligible amount that came off the MiSeq RC'd. So neglect this step for now.
+
+##Quality filtering & sequence lengths:
+vsearch2 --fastq_filter trimmed2.fq --fastq_minlen 300 --fastq_maxee 1 --fastaout reads.fa
+
+##Dereplication #note: sizeout option important for subsequent de novo chimera removal step
+vsearch2 --derep_fulllength reads.fa --output uniques.fa --sizeout --relabel Uniq
+
+###Chimera removal:
+vsearch2 --uchime_denovo uniques.fa --nonchimeras results.fa --abskew 1.5 --threads 8
+
+########Cluster OTUs at 97%+ similarity, excluding singletons:
+vsearch2 -cluster_fast results.fa --threads 8 --id 0.97 --iddef 0 --minuniquesize 2 --relabel OTU --centroids otus.fa 
+
+##Create OTU table: -the sample identifiers are apparently assumed to end at first non-alphanumeric or underscore char..?
+#Threshold of 97%?
+
+#Convert allmerged2 fastq to fasta:
+vsearch --fastq_filter allmerged.fq -fastaout allmerged.fa
+
+sed -i 's/|.*//' allmerged.fa
+sed -i 's/-//g' allmerged.fa
+
+##Finally, create table:
+vsearch2 -usearch_global allmerged.fa -db otus.fa --id 0.97 --otutabout otu_table.txt
+
+
