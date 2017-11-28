@@ -4,8 +4,13 @@
 ##Get all fastq files into working directory and unzip them (my vsearch (v2.4.3_linux_x86_64, 15.6GB RAM, 8 cores)
 ##doesn't work with gzipped files, for some reason).
 
+##Define Variables (Change to your primer sequences, these are MiniLGC):
+PRIMER_F="TCATGGWACWGGWTGAACWGTWTAYCCYCC"
+PRIMER_R_RC="TGRTTYTTTGGTCACCCTGAAGTTTACTCC"
+PRIMER_R="GGAGTAAACTTCAGGGTGACCAAARAAYCA"
+PRIMER_F_RC="GGRGGRTAWACWGTTCAWCCWGTWCCATGA"
+
 ##Merge paired-end reads:
-#this one is working:
 for i in *_R1_*.fastq; do
 	vsearch2 --fastq_mergepairs ${i} \
 		--reverse ${i/_R1_/_R2_} \
@@ -18,16 +23,18 @@ for i in $(ls *_merged.fq | cut -f 1-3 -d "_"); do sed -i "s/^@M/@${i}|/" ${i}_m
 #Concatenate merged fastq's into one file:
 cat *_merged.fq > allmerged.fq
 
-#remove primers -Note: you have to specify your own primers. These are "MiniLGC" fwd & rev primers for a 313-bp coding region of COI.
+#remove primers:
 ##forward:
-cutadapt -g ^TCATGGWACWGGWTGAACWGTWTAYCCYCC -o trimmed1.fq allmerged.fq
+cutadapt -g ^${PRIMER_F} -o trimmed1.fq allmerged.fq
 ##reverse:
-cutadapt -a TGRTTYTTTGGTCACCCTGAAGTTTACTCC$ -o trimmed2.fq trimmed1.fq 
+cutadapt -a ${PRIMER_R_RC}$ -o trimmed2.fq trimmed1.fq
+#rc:
+cutadapt -g ^${PRIMER_R} -o trimmed3.fq trimmed2.fq
+cutadapt -a ${PRIMER_F_RC}$ -o trimmed4.fq trimmed3.fq
 
-##Reverse Complementing: There really should only be a negligible amount that came off the MiSeq RC'd. So neglect this step for now.
 
 ##Quality filtering & sequence lengths:
-vsearch2 --fastq_filter trimmed2.fq --fastq_minlen 300 --fastq_maxee 1 --fastaout reads.fa
+vsearch2 --fastq_filter trimmed4.fq --fastq_minlen 300 --fastq_maxee 1 --fastaout reads.fa
 
 ##Dereplication #note: sizeout option important for subsequent de novo chimera removal step
 vsearch2 --derep_fulllength reads.fa --sizeout --relabel Uniq --minuniquesize 2 --output uniques.fa
