@@ -30,22 +30,24 @@ cutadapt -a TGRTTYTTTGGTCACCCTGAAGTTTACTCC$ -o trimmed2.fq trimmed1.fq
 vsearch2 --fastq_filter trimmed2.fq --fastq_minlen 300 --fastq_maxee 1 --fastaout reads.fa
 
 ##Dereplication #note: sizeout option important for subsequent de novo chimera removal step
-vsearch2 --derep_fulllength reads.fa --output uniques.fa --sizeout --relabel Uniq
+vsearch2 --derep_fulllength reads.fa --sizeout --relabel Uniq --minuniquesize 2 --output uniques.fa
 
 ###Chimera removal:
-vsearch2 --uchime_denovo uniques.fa --nonchimeras results.fa --abskew 1.5 --threads 8
+vsearch2 --uchime_denovo uniques.fa --nonchimeras results.fa --abskew 1.5
 
-########Cluster OTUs at 97%+ similarity, excluding singletons:
-vsearch2 -cluster_fast results.fa --threads 8 --id 0.97 --iddef 0 --minuniquesize 2 --relabel OTU --centroids otus.fa 
+########Cluster OTUs at 97%+ similarity.
+vsearch2 -cluster_size results.fa --threads 8 --id 0.97 --iddef 0 --sizein --sizeout --relabel OTU --centroids otus.fa 
 
-##Create OTU table: -the sample identifiers are apparently assumed to end at first non-alphanumeric or underscore char..?
+##Create OTU table: -the sample identifiers are apparently assumed to end at first non-alphanumeric or underscore char.
 #Threshold of 97%?
 
-#Convert allmerged2 fastq to fasta:
+#Convert allmerged fastq to fasta:
 vsearch --fastq_filter allmerged.fq -fastaout allmerged.fa
 
+#Edit it so that vsearch chops the headers only after the sample identifiers (will be the column names in table)
 sed -i 's/|.*//' allmerged.fa
-sed -i 's/-//g' allmerged.fa
+sed -i 's/_.*//' allmerged.fa
+sed -i 's/-/_/g' allmerged.fa
 
 ##Finally, create table:
 vsearch2 -usearch_global allmerged.fa -db otus.fa --id 0.97 --otutabout otu_table.txt
