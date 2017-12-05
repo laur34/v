@@ -10,40 +10,69 @@ PRIMER_R_RC="TGRTTYTTTGGTCACCCTGAAGTTTACTCC"
 PRIMER_R="GGAGTAAACTTCAGGGTGACCAAARAAYCA"
 PRIMER_F_RC="GGRGGRTAWACWGTTCAWCCWGTWCCATGA"
 
-##Merge paired-end reads:
+THREADS=8
+VSEARCH=$(which vsearch2)
+
+#
+echo
+echo Checking FASTQ file
+
+$VSEARCH --fastq_chars $(ls -1 *.fastq | head -1)
+
+########Processing of the samples
+
+echo Paired-end merging
+
 for i in *_R1_*.fastq; do
-	vsearch2 --fastq_mergepairs ${i} \
-		--reverse ${i/_R1_/_R2_} \
-		--fastqout ${i/R1_*/merged.fq} \
+	$VSEARCH --fastq_mergepairs ${i} --reverse ${i/_R1_/_R2_} --fastqout ${i/R1_*/merged.fq}
 done
 
-##Relabel the headers:
-for i in $(ls *_merged.fq | cut -f 1-3 -d "_"); do sed -i "s/^@M/@${i}|/" ${i}_merged.fq; done
+#remove primers
+for f in *merged.fq; do
+	r=$(sed -e "s/_R1_/_R2_/" <<< "$f")
+	s=$(cut -d_ -f1 <<< "$f")
+	echo ===========================
+	echo Processing sample $s
+	echo
+	cutadapt -g ^${PRIMER_F} -o ${s}_trimmed1.fq $f
+	cutadapt -a ${PRIMER_R_RC}$ -o ${s}_trimmed2.fq ${s}_trimmed1.fq
+	cutadapt -g ^${PRIMER_R} -o ${s}_trimmed3.fq ${s}_trimmed2.fq
+	cutadapt -a ${PRIMER_F_RC}$ -o ${s}_trimmed4.fq ${s}_trimmed3.fq
+done
 
+##Quality filtering and sequence lengths, and dereplication in one loop
+##note: sizeout option important for subsequent de novo chimera removal step
+
+for f in *_trimmed4.fq; do
+	s=$(cut -d_ -f1 <<< "$f")
+	echo keeping sequences above min length, with quality scores above 1
+	$VSEARCH --fastq_filter $f --fastq_minlen 300 --fastq_maxee 1 --fastaout ${s}.fa
+	echo
+	echo Dereplication
+	$VSEARCH --derep_fulllength ${s}.fa --sizeout --relabel Uniq --minuniquesize 2 --relabel $s. --output ${s}_uniques.fa
+done
+
+
+echo Sum of unique sequences in all samples: $(cat *_uniques.fa | grep -c "^>")
+
+# At this point there should be one uniques fasta file for each sample, quality filtered and dereplicated                              
+
+echo
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo Concatenating all samples and processing together
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#############not changed yet below here
 #Concatenate merged fastq's into one file:
 cat *_merged.fq > allmerged.fq
 
-#remove primers:
-##forward:
-cutadapt -g ^${PRIMER_F} -o trimmed1.fq allmerged.fq
-##reverse:
-cutadapt -a ${PRIMER_R_RC}$ -o trimmed2.fq trimmed1.fq
-#rc:
-cutadapt -g ^${PRIMER_R} -o trimmed3.fq trimmed2.fq
-cutadapt -a ${PRIMER_F_RC}$ -o trimmed4.fq trimmed3.fq
 
-
-##Quality filtering & sequence lengths:
-vsearch2 --fastq_filter trimmed4.fq --fastq_minlen 300 --fastq_maxee 1 --fastaout reads.fa
-
-##Dereplication #note: sizeout option important for subsequent de novo chimera removal step
-vsearch2 --derep_fulllength reads.fa --sizeout --relabel Uniq --minuniquesize 2 --output uniques.fa
 
 ###Chimera removal:
-vsearch2 --uchime_denovo uniques.fa --nonchimeras results.fa --abskew 1.5
+$VSEARCH --uchime_denovo uniques.fa --nonchimeras results.fa --abskew 1.5
 
 ########Cluster OTUs at 97%+ similarity.
-vsearch2 -cluster_size results.fa --threads 8 --id 0.97 --iddef 0 --sizein --sizeout --relabel OTU --centroids otus.fa 
+$VSEARCH -cluster_size results.fa --threads 8 --id 0.97 --iddef 0 --sizein --sizeout --relabel OTU --centroids otus.fa 
 
 ##Create OTU table: -the sample identifiers are apparently assumed to end at first non-alphanumeric or underscore char.
 #Threshold of 97%?
@@ -57,6 +86,6 @@ sed -i 's/_.*//' allmerged.fa
 sed -i 's/-/_/g' allmerged.fa
 
 ##Finally, create table:
-vsearch2 -usearch_global allmerged.fa -db otus.fa --id 0.97 --otutabout otu_table.txt
+$VSEARCH -usearch_global allmerged.fa -db otus.fa --id 0.97 --otutabout otu_table.txt
 
 
