@@ -1,3 +1,4 @@
+#! /bin/bash
 ## VSEARCH-based pipeline for Illumina paired-end metabarcoding reads
 ## 11.2017 LH, VB.
 
@@ -70,7 +71,7 @@ cat *_uniques.fa > all.fa
 echo
 echo Dereplicate combined file and discard singletons.
 $VSEARCH --derep_fulllength all.fa \
-	--minuniquesize 2 --sizein --sizeout --uc all.derep.uc --ouput all.derep.fa
+	--minuniquesize 2 --sizein --sizeout --uc all.derep.uc --output all.derep.fa
 
 echo
 echo Total unique non-singleton sequences: $(grep -c "^>" all.derep.fa)
@@ -97,9 +98,13 @@ $VSEARCH --threads $THREADS \
 	--cluster_size all.derep.nochimeras.fa --id 0.98 --iddef 0 --sizein --sizeout --relabel OTU_ --centroids otus.fa 
 
 
-#Convert allmerged fastq to fasta:
 echo
 echo Formatting raw sequences for OTU table
+
+for i in $(ls *_merged.fq | cut -f 1-3 -d "_"); do sed -i "s/^@M/@${i}|/" ${i}_merged.fq; done
+#Concatenate merged fastqs into one:
+cat *merged.fq > allmerged.fq
+#Convert allmerged fastq to fasta:
 vsearch --fastq_filter allmerged.fq -fastaout allmerged.fa
 
 #Edit it so that vsearch chops the headers only after the sample identifiers (will be the column names in table)
