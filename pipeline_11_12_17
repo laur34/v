@@ -1,0 +1,134 @@
+#! /bin/bash
+
+## VSEARCH-based pipeline for Illumina paired-end metabarcoding reads
+## 12.2017 LH
+## Run by typing bash vsearch_script_for_larger_datasets.sh
+## Can be run on an external drive, where data is in directory DATADIR.
+
+##Define Variables (Change to your primer sequences, these are MiniLGC, threads computer, and directories):
+PRIMER_F="TCATGGWACWGGWTGAACWGTWTAYCCYCC"
+PRIMER_R_RC="TGRTTYTTTGGTCACCCTGAAGTTTACTCC"
+PRIMER_R="GGAGTAAACTTCAGGGTGACCAAARAAYCA"
+PRIMER_F_RC="GGRGGRTAWACWGTTCAWCCWGTWCCATGA"
+
+MINLEN=300 #Should figure out how to take a look at the sequence lengths from the command line.
+
+THREADS=8
+VSEARCH=$(which vsearch2)
+
+DATADIR="/media/laur/INTENSO/AIMSEQ10082017 - RIMA/RAW DATA/RAW"
+OUTDIR=/media/laur/8b3e5647-ec62-46b4-acf8-3edd161f78f5/rima
+###############################################################
+set -e
+echo
+echo Checking one FASTQ file
+## Note: should probably cd to datadir, to avoid having to type path
+$VSEARCH --fastq_chars "$(ls -1 "$DATADIR"/*.fastq | head -1)"
+
+echo
+echo Paired-end merging
+
+for i in "$DATADIR"/*_R1_*.fastq; do
+	$VSEARCH --fastq_mergepairs "$i" --reverse "${i/_R1_/_R2_}" --fastqout "${i/R1_001.fastq/merged.fq}"
+done
+
+
+echo
+echo
+echo Removing primers
+for f in "$DATADIR"/*merged.fq; do
+	r=$(sed -e "s/_R1_/_R2_/" <<< "$f")
+	s=$(cut -d_ -f1 <<< "$f")
+	echo ===========================
+	echo Processing sample $s
+	echo
+	cutadapt -j 8 -g ^${PRIMER_F} -o "${s}_trimmed1.fq" "$f"
+	cutadapt -j 8 -a ${PRIMER_R_RC}$ -o "${s}_trimmed2.fq" "${s}_trimmed1.fq"
+	cutadapt -j 8 -g ^${PRIMER_R} -o "${s}_trimmed3.fq" "${s}_trimmed2.fq"
+	cutadapt -j 8 -a ${PRIMER_F_RC}$ -o "${s}_trimmed4.fq" "${s}_trimmed3.fq"
+done
+
+##Quality filtering and sequence lengths, and dereplication in one loop
+##note: sizeout option important for subsequent de novo chimera removal step
+echo
+## note: should probably just cd to datadir, and then the full path won't be in the variable names and headers.
+for f in "$DATADIR"/*_trimmed4.fq; do
+	s=$(cut -d_ -f1 <<< "$f")
+	echo keeping sequences above min length, with quality scores above 1
+	echo processing sample $s
+	$VSEARCH --threads $THREADS --fastq_filter "$f" --fastq_minlen 300 --fastq_maxee 1 --fastaout "${s}.fa"
+	echo
+	echo Dereplication
+	$VSEARCH --threads $THREADS --derep_fulllength "${s}.fa" --sizeout --relabel Uniq --relabel "${s}." --output "${s}_uniques.fa"
+done
+
+
+echo Sum of unique sequences in all samples: $(cat "$DATADIR"/*_uniques.fa | grep -c "^>")
+
+# At this point there should be one uniques fasta file for each sample, quality filtered and dereplicated                              
+echo
+echo
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+echo Concatenating all samples and processing together
+echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+##Note: fastq/a files from earlier being in the directory could get added, so they should not be in the working directory.
+#Concatenate merged fastq's into one file:
+cat "$DATADIR"/*_uniques.fa > all.fa
+
+cd "$OUTDIR"
+
+#Edit headers to get rid of the paths until the filenames:
+sed -i 's/\/media\/laur\/INTENSO\/AIMSEQ10082017 - RIMA\/RAW DATA\/RAW\///' all.fa
+
+echo
+echo Dereplicate combined file and discard singletons.
+$VSEARCH --derep_fulllength all.fa --minuniquesize 2 --sizein --sizeout --uc all.derep.uc --output all.derep.fa
+
+echo
+echo Total unique non-singleton sequences: $(grep -c "^>" all.derep.fa)
+
+#Cluster before chimera detection, so uchime won't take as long:
+echo
+echo Cluster at 98% into OTUs, relabeling with OTU_
+$VSEARCH --threads $THREADS --cluster_size all.derep.fa --id 0.98 --iddef 0 --sizein --sizeout --relabel OTU_ --centroids otusch.fa 
+
+echo
+echo OTUs before chimera detection: $(grep -c "^>" otusch.fa)
+
+
+echo
+echo De novo chimera detection
+$VSEARCH --threads $THREADS --uchime_denovo otusch.fa --sizein --sizeout --nonchimeras otus.fa
+
+echo
+echo OTUs after chimera detection: $(grep -c "^>" otus.fa)
+
+
+echo
+echo Formatting raw sequences for OTU table #This is taking a long time.
+
+cd "$DATADIR"
+
+for f in *_merged.fq; do
+	s=$(cut -d_ -f1-3 <<< "$f")
+	sed -i "s/^@M/@${s}|/" "$f"
+done
+
+
+#Concatenate merged fastqs into one:
+cat *merged.fq > allmerged.fq
+#Convert allmerged fastq to fasta:
+vsearch --fastq_filter allmerged.fq -fastaout allmerged.fa
+
+#Edit it so that vsearch chops the headers only after the sample identifiers (will be the column names in table)
+sed -i 's/|.*//' allmerged.fa
+sed -i 's/_.*//' allmerged.fa
+sed -i 's/-/_/g' allmerged.fa
+
+echo
+echo Creating OTU table
+$VSEARCH --usearch_global allmerged.fa -db "$OUTDIR"/otus.fa --id 0.97 --otutabout otu_table.txt
+
+echo Done.
+date
