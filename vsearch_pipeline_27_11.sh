@@ -1,9 +1,11 @@
 #! /bin/bash
+
 ## VSEARCH-based pipeline for Illumina paired-end metabarcoding reads
 ## 11.2017 LH, VB.
 
-##Get all fastq files into working directory and unzip them (my vsearch (v2.4.3_linux_x86_64, 15.6GB RAM, 8 cores)
-##doesn't work with gzipped files, for some reason).
+#All fastq files to use must be in working directory, and maybe unzipped, depending on vsearch version.
+
+set -e
 
 ##Define Variables (Change to your primer sequences, these are MiniLGC):
 PRIMER_F="TCATGGWACWGGWTGAACWGTWTAYCCYCC"
@@ -58,7 +60,7 @@ done
 echo Sum of unique sequences in all samples: $(cat *_uniques.fa | grep -c "^>")
 
 # At this point there should be one uniques fasta file for each sample, quality filtered and dereplicated                              
-
+echo
 echo
 echo ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 echo Concatenating all samples and processing together
@@ -77,8 +79,8 @@ echo
 echo Total unique non-singleton sequences: $(grep -c "^>" all.derep.fa)
 
 
-#echo Pre-clustering at 98% before chimera detection.
-
+#By not clustering (or pre-clustering) before chimera detection, uchime will take longer.
+#If dataset is large, it might be a better idea to edit the script.
 #$VSEARCH --threads $THREADS --cluster_size all.derep.fa \
 #	--id 0.98 --sizein --sizeout --uc all.preclustered.uc --centroids all.preclustered.fa
 
