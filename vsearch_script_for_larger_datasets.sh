@@ -38,7 +38,7 @@ done
 
 #Because relabel option does not work in this command, rename the merged fastqs to contain the sample names:
 
-echo =================================================================================
+echo ================================================================================
 echo
 echo Relabeling merged fastq files
 for f in *_merged.fq; do
@@ -70,7 +70,7 @@ for f in *_trimmed4.fq; do
 	s=$(cut -d_ -f1 <<< "$f")
 	echo keeping sequences above min length, with quality scores above 1
 	echo processing sample $s
-	$VSEARCH --threads $THREADS --fastq_filter "$f" --fastq_minlen 300 --fastq_maxee 1 --fastaout "${s}.qf.fa"
+	$VSEARCH --threads $THREADS --fastq_filter "$f" --fastq_minlen $MINLEN --fastq_maxee 1 --fastaout "${s}.qf.fa"
 	echo
 	echo Dereplication
 	$VSEARCH --threads $THREADS --derep_fulllength "${s}.qf.fa" --sizeout --relabel Uniq --relabel "${s}." --output "${s}_uniques.fa"
@@ -108,7 +108,7 @@ echo OTUs before chimera detection: $(grep -c "^>" otusch.fa)
 
 echo
 echo De novo chimera detection
-$VSEARCH --threads $THREADS --uchime_denovo otusch.fa --sizein --sizeout --nonchimeras otus.fa
+$VSEARCH --threads $THREADS --uchime_denovo otusch.fa --sizein --sizeout --nonchimeras otus.fasta
 
 echo
 echo OTUs after chimera detection: $(grep -c "^>" otus.fa)
@@ -132,8 +132,17 @@ done
 cat *_merged.fa > allmerged.fa
 
 echo
-echo Creating OTU table
-$VSEARCH --usearch_global allmerged.fa -db otus.fa --id 0.97 --otutabout otu_table.txt
+echo Create OTU table:
+$VSEARCH --usearch_global allmerged.fa -db otus.fasta --id 0.97 --otutabout otu_table.txt
+
+echo Cleaning up temporary files.
+rm *qf.fa
+rm all.derep.fa
+rm *001_merged.fq
+rm *_uniques.fa
+rm *trimmed*.fq
+rm all.fa
+rm otusch.fa
 
 echo Done.
 date
