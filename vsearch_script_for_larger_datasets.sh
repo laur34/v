@@ -56,17 +56,17 @@ for f in *merged.fq; do
 	echo ========================================================================
 	echo Processing sample $s
 	echo
-	cutadapt -g ${PRIMER_F} -o "${s}_trimmed1.fq" "$f"
-	cutadapt -a ${PRIMER_R_RC} -o "${s}_trimmed2.fq" "${s}_trimmed1.fq"
-	cutadapt -g ${PRIMER_R} -o "${s}_trimmed3.fq" "${s}_trimmed2.fq"
-	cutadapt -a ${PRIMER_F_RC} -o "${s}_trimmed4.fq" "${s}_trimmed3.fq"
+	cat $f ${f}_revcomp.fq > "${f}_both.fq"
+	cutadapt --discard-untrimmed -g ${PRIMER_F} -o "${s}_trimmed1.fq" "${f}_both.fq"
+	cutadapt --discard-untrimmed -a ${PRIMER_R_RC} -o "${s}_trimmed2.fq" "${s}_trimmed1.fq"
 done
+
 
 ##Quality filtering and sequence lengths, and dereplication in one loop
 ##note: sizeout option important for subsequent de novo chimera removal step
 echo
 
-for f in *_trimmed4.fq; do
+for f in *_trimmed2.fq; do
 	s=$(cut -d_ -f1 <<< "$f")
 	echo keeping sequences above min length, with quality scores above 1
 	echo processing sample $s
