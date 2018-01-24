@@ -47,17 +47,25 @@ for f in *_merged.fq; do
 	sed -i "s/^@M/@${s}|/" "$f"
 done
 
+##Reverse complement reads:
+echo Reverse complementing merged reads
+for f in *_merged.fq; do
+    s=$(cut -d_ -f1-3 <<< "$f")
+    echo Processing sample $s
+    $VSEARCH --fastx_revcomp "$f" --fastqout "${s}_mergedrc.fq"
+done
+
 
 echo
 echo
 echo Removing primers
 for f in *merged.fq; do
-	s=$(cut -d_ -f1 <<< "$f")
+	s=$(cut -d_ -f1-3 <<< "$f")
 	echo ========================================================================
 	echo Processing sample $s
 	echo
-	cat $f ${f}_revcomp.fq > "${f}_both.fq"
-	cutadapt --discard-untrimmed -g ${PRIMER_F} -o "${s}_trimmed1.fq" "${f}_both.fq"
+	cat $f ${s}_mergedrc.fq > "${s}_both.fq"
+	cutadapt --discard-untrimmed -g ${PRIMER_F} -o "${s}_trimmed1.fq" "${s}_both.fq"
 	cutadapt --discard-untrimmed -a ${PRIMER_R_RC} -o "${s}_trimmed2.fq" "${s}_trimmed1.fq"
 done
 
